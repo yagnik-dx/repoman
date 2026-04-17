@@ -1,11 +1,10 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
+	"runtime"
 
 	"repoman/internal/config"
 	"repoman/internal/ui"
@@ -15,7 +14,7 @@ import (
 
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Select repos to start, open their VS Code workspace with integrated terminals",
+	Short: "Select repos to start, open VS Code workspace and launch each start command in a new terminal",
 	Example: `  repoman start
   repoman start --only backend`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -49,9 +48,11 @@ var startCmd = &cobra.Command{
 			return nil
 		}
 
-		if cfg.Workspace == "" {
-			fmt.Println("No workspace configured. Run repoman setup to set one.")
-			return nil
+		if cfg.Workspace != "" {
+			fmt.Println("Opening workspace...")
+			if err := exec.Command("code", cfg.Workspace).Start(); err != nil {
+				fmt.Printf("warning: could not open VS Code: %v\n", err)
+			}
 		}
 
 		for _, name := range chosen {
@@ -60,77 +61,38 @@ var startCmd = &cobra.Command{
 				fmt.Printf("[%s] skipped: directory not found\n", name)
 				continue
 			}
-			repoCfg := cfg.RepoConfig[name]
-			fmt.Printf("[%s] injecting tasks...\n", name)
-			if err := injectRepomanTasks(cfg.Workspace, path, name, repoCfg.Start); err != nil {
-				fmt.Printf("[%s] warning: %v\n", name, err)
+			for _, command := range cfg.RepoConfig[name].Start {
+				fmt.Printf("[%s] launching: %s\n", name, command)
+				if err := spawnTerminal(path, name, command); err != nil {
+					fmt.Printf("[%s] warning: could not launch terminal: %v\n", name, err)
+				}
 			}
-		}
-
-		fmt.Println("Opening workspace...")
-		if err := exec.Command("code", cfg.Workspace).Start(); err != nil {
-			return fmt.Errorf("could not open VS Code: %w", err)
 		}
 
 		return nil
 	},
 }
 
-func injectRepomanTasks(workspacePath, repoName, repoDir string, commands []string) error {
-	data, err := os.ReadFile(workspacePath)
-	if err != nil {
-		return err
-	}
+func spawnTerminal(dir, repoName, command string) error {
+	title := fmt.Sprintf("repoman — %s", repoName)
+	var cmd *exec.Cmd
 
-	var ws map[string]interface{}
-	if err := json.Unmarshal(data, &ws); err != nil {
-		return fmt.Errorf("could not parse workspace file: %w", err)
-	}
-
-	tasksSection, _ := ws["tasks"].(map[string]interface{})
-	if tasksSection == nil {
-		tasksSection = map[string]interface{}{"version": "2.0.0"}
-	}
-
-	// Preserve non-repoman tasks, replace repoman ones for this repo.
-	labelPrefix := fmt.Sprintf("repoman: %s", repoName)
-	var kept []interface{}
-	if arr, ok := tasksSection["tasks"].([]interface{}); ok {
-		for _, t := range arr {
-			if tm, ok := t.(map[string]interface{}); ok {
-				if label, _ := tm["label"].(string); strings.HasPrefix(label, labelPrefix) {
-					continue
-				}
-			}
-			kept = append(kept, t)
+	if runtime.GOOS == "windows" {
+		if _, err := exec.LookPath("wt"); err == nil {
+			cmd = exec.Command("wt", "--title", title,
+				"--startingDirectory", dir,
+				"cmd", "/K", command)
+		} else {
+			cmd = exec.Command("cmd", "/C", "start",
+				title, "cmd", "/K",
+				fmt.Sprintf("cd /d %s && %s", dir, command))
 		}
+	} else {
+		cmd = exec.Command("sh", "-c",
+			fmt.Sprintf(`osascript -e 'tell app "Terminal" to do script "cd %s && %s"'`, dir, command))
 	}
 
-	for _, command := range commands {
-		kept = append(kept, map[string]interface{}{
-			"label":   fmt.Sprintf("repoman: %s — %s", repoName, command),
-			"type":    "shell",
-			"command": command,
-			"options": map[string]interface{}{"cwd": repoDir},
-			"runOptions": map[string]interface{}{
-				"runOn": "folderOpen",
-			},
-			"presentation": map[string]interface{}{
-				"panel":            "new",
-				"focus":            false,
-				"showReuseMessage": false,
-			},
-		})
-	}
-
-	tasksSection["tasks"] = kept
-	ws["tasks"] = tasksSection
-
-	out, err := json.MarshalIndent(ws, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(workspacePath, out, 0644)
+	return cmd.Start()
 }
 
 func init() {
