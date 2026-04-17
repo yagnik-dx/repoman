@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -40,9 +41,12 @@ func TestSaveAndLoad(t *testing.T) {
 }
 
 func TestLoadMissingFile(t *testing.T) {
-	_, err := loadFromPath("/nonexistent/path/config.json")
+	_, err := loadFromPath(filepath.Join(t.TempDir(), "does-not-exist.json"))
 	if err == nil {
 		t.Fatal("expected error for missing file")
+	}
+	if !strings.Contains(err.Error(), "config not found") {
+		t.Errorf("expected 'config not found' error, got: %v", err)
 	}
 }
 
