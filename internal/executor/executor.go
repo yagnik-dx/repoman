@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -14,11 +15,15 @@ func RunStreaming(dir, repoName, command string) error {
 }
 
 func runStreamingTo(dir, repoName, command string, w io.Writer) error {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
+	if command == "" {
 		return fmt.Errorf("empty command")
 	}
-	cmd := exec.Command(parts[0], parts[1:]...)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", command)
+	} else {
+		cmd = exec.Command("sh", "-c", command)
+	}
 	cmd.Dir = dir
 	pw := &prefixWriter{prefix: fmt.Sprintf("[%s] ", repoName), w: w}
 	cmd.Stdout = pw

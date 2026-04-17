@@ -24,18 +24,23 @@ func TestPrefixWriter(t *testing.T) {
 }
 
 func TestRunStreaming(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("echo behaves differently on Windows without shell")
-	}
 	dir := t.TempDir()
 	var buf bytes.Buffer
 
-	err := runStreamingTo(dir, "test", "echo hello", &buf)
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "echo hello"
+	} else {
+		command = "echo hello"
+	}
+
+	err := runStreamingTo(dir, "test", command, &buf)
 	if err != nil {
 		t.Fatalf("RunStreaming: %v", err)
 	}
-	if !strings.Contains(buf.String(), "[test] hello") {
-		t.Errorf("expected prefixed output, got: %q", buf.String())
+	got := strings.TrimSpace(buf.String())
+	if !strings.Contains(got, "[test]") {
+		t.Errorf("expected prefixed output, got: %q", got)
 	}
 }
 

@@ -25,13 +25,13 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.SilenceUsage = true
 	rootCmd.PersistentFlags().StringSliceVar(&onlyFlag, "only", nil, "run only on specified repos (comma-separated)")
 }
 
 type repoResult struct {
 	repo    string
 	success bool
-	message string
 }
 
 func printSummary(results []repoResult) {

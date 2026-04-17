@@ -39,7 +39,14 @@ var setupCmd = &cobra.Command{
 			return nil
 		}
 
+		// Load existing config to preserve entries for repos not being re-configured
+		existing, _ := config.Load()
 		repoConfigs := make(map[string]config.RepoConfig)
+		if existing != nil {
+			for k, v := range existing.RepoConfig {
+				repoConfigs[k] = v
+			}
+		}
 		for _, r := range toSetup {
 			branch, err := ui.AskString(fmt.Sprintf("[%s] Target branch:", r), "develop")
 			if err != nil {
