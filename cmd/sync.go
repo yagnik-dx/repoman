@@ -43,7 +43,12 @@ var syncCmd = &cobra.Command{
 			}
 
 			dirty, err := git.IsDirty(path)
-			if err != nil || dirty {
+			if err != nil {
+				fmt.Printf("[%s] skipped: could not check status: %v\n", name, err)
+				results = append(results, repoResult{repo: name, success: false})
+				continue
+			}
+			if dirty {
 				fmt.Printf("[%s] skipped: uncommitted changes\n", name)
 				results = append(results, repoResult{repo: name, success: false})
 				continue
@@ -64,7 +69,12 @@ var syncCmd = &cobra.Command{
 			}
 
 			exists, err := git.BranchExistsOnRemote(path, repoCfg.Branch)
-			if err != nil || !exists {
+			if err != nil {
+				fmt.Printf("[%s] skipped: could not check remote branch: %v\n", name, err)
+				results = append(results, repoResult{repo: name, success: false})
+				continue
+			}
+			if !exists {
 				fmt.Printf("[%s] skipped: branch %q not found on remote\n", name, repoCfg.Branch)
 				results = append(results, repoResult{repo: name, success: false})
 				continue
@@ -72,7 +82,9 @@ var syncCmd = &cobra.Command{
 
 			fmt.Printf("[%s] rebasing onto origin/%s...\n", name, repoCfg.Branch)
 			if err := git.Rebase(path, repoCfg.Branch); err != nil {
-				git.RebaseAbort(path)
+				if abortErr := git.RebaseAbort(path); abortErr != nil {
+					fmt.Printf("[%s] warning: rebase --abort failed: %v\n", name, abortErr)
+				}
 				fmt.Printf("[%s] skipped: rebase conflict\n", name)
 				results = append(results, repoResult{repo: name, success: false})
 				continue
