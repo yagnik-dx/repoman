@@ -2,6 +2,7 @@ package git
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -34,5 +35,50 @@ func TestScanReposMissingBase(t *testing.T) {
 	_, err := ScanRepos(filepath.Join(t.TempDir(), "nonexistent"))
 	if err == nil {
 		t.Fatal("expected error for missing basePath")
+	}
+}
+
+func initRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "t@t.com"},
+		{"git", "config", "user.name", "T"},
+	}
+	for _, c := range cmds {
+		cmd := exec.Command(c[0], c[1:]...)
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("init repo: %v", err)
+		}
+	}
+	// initial commit
+	f := filepath.Join(dir, "README.md")
+	os.WriteFile(f, []byte("# repo"), 0644)
+	exec.Command("git", "-C", dir, "add", ".").Run()
+	exec.Command("git", "-C", dir, "commit", "-m", "init").Run()
+	return dir
+}
+
+func TestIsDirty(t *testing.T) {
+	dir := initRepo(t)
+
+	dirty, err := IsDirty(dir)
+	if err != nil {
+		t.Fatalf("IsDirty clean: %v", err)
+	}
+	if dirty {
+		t.Error("expected clean repo to not be dirty")
+	}
+
+	// modify a file
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("changed"), 0644)
+	dirty, err = IsDirty(dir)
+	if err != nil {
+		t.Fatalf("IsDirty dirty: %v", err)
+	}
+	if !dirty {
+		t.Error("expected modified repo to be dirty")
 	}
 }
