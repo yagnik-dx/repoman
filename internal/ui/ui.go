@@ -1,6 +1,13 @@
 package ui
 
-import "github.com/AlecAivazis/survey/v2"
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/AlecAivazis/survey/v2"
+)
 
 // MultiSelect shows a checkbox list. defaults are pre-selected option values.
 func MultiSelect(message string, options []string, defaults []string) ([]string, error) {
@@ -20,11 +27,23 @@ func Confirm(message string) (bool, error) {
 	return result, err
 }
 
-// AskString shows a text input prompt with an optional default value.
+// AskString shows a text input prompt using plain stdin so paste (Ctrl+V) works on Windows.
 func AskString(message, defaultVal string) (string, error) {
-	var result string
-	err := survey.AskOne(&survey.Input{Message: message, Default: defaultVal}, &result)
-	return result, err
+	if defaultVal != "" {
+		fmt.Printf("%s (default: %s)\n> ", message, defaultVal)
+	} else {
+		fmt.Printf("%s\n> ", message)
+	}
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return defaultVal, nil
+	}
+	return line, nil
 }
 
 // Select shows a single-choice list.
