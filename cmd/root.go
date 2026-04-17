@@ -3,6 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+
+	"repoman/internal/git"
 
 	"github.com/spf13/cobra"
 )
@@ -40,4 +43,32 @@ func printSummary(results []repoResult) {
 		}
 	}
 	fmt.Printf("\n%d repos processed — %d succeeded, %d skipped\n", total, success, total-success)
+}
+
+// resolveRepos returns the list of repos to operate on.
+// If --only is set, validates each name exists under basePath and returns them.
+// Otherwise returns selectedRepos from config.
+func resolveRepos(basePath string, selectedRepos []string) ([]string, error) {
+	if len(onlyFlag) == 0 {
+		return selectedRepos, nil
+	}
+	all, err := git.ScanRepos(basePath)
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool, len(all))
+	for _, r := range all {
+		set[r] = true
+	}
+	for _, r := range onlyFlag {
+		if !set[r] {
+			return nil, fmt.Errorf("unknown repo: %s", r)
+		}
+	}
+	return onlyFlag, nil
+}
+
+// repoPath joins basePath and repoName into a full path.
+func repoPath(basePath, name string) string {
+	return filepath.Join(basePath, name)
 }
