@@ -8,8 +8,9 @@ import (
 )
 
 type RepoConfig struct {
-	Branch string   `json:"branch"`
-	Start  []string `json:"start"`
+	Branch    string   `json:"branch"`
+	Workspace string   `json:"workspace,omitempty"`
+	Start     []string `json:"start"`
 }
 
 type Config struct {
