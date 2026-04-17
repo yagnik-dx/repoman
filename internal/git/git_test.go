@@ -82,3 +82,47 @@ func TestIsDirty(t *testing.T) {
 		t.Error("expected modified repo to be dirty")
 	}
 }
+
+func TestCurrentBranch(t *testing.T) {
+	dir := initRepo(t)
+	branch, err := CurrentBranch(dir)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+	if branch == "" {
+		t.Error("expected non-empty branch name")
+	}
+}
+
+func TestLocalBranches(t *testing.T) {
+	dir := initRepo(t)
+
+	// create two extra branches
+	exec.Command("git", "-C", dir, "branch", "feature-a").Run()
+	exec.Command("git", "-C", dir, "branch", "feature-b").Run()
+
+	branches, err := LocalBranches(dir)
+	if err != nil {
+		t.Fatalf("LocalBranches: %v", err)
+	}
+	// current branch is excluded, so we expect feature-a and feature-b
+	if len(branches) != 2 {
+		t.Fatalf("got %d branches, want 2: %v", len(branches), branches)
+	}
+}
+
+func TestDeleteBranch(t *testing.T) {
+	dir := initRepo(t)
+	exec.Command("git", "-C", dir, "branch", "to-delete").Run()
+
+	if err := DeleteBranch(dir, "to-delete"); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+
+	branches, _ := LocalBranches(dir)
+	for _, b := range branches {
+		if b == "to-delete" {
+			t.Error("branch still exists after deletion")
+		}
+	}
+}

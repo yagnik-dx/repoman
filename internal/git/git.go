@@ -70,3 +70,33 @@ func BranchExistsOnRemote(repoPath, branch string) (bool, error) {
 	}
 	return len(out) > 0, nil
 }
+
+// CurrentBranch returns the name of the currently checked-out branch.
+func CurrentBranch(repoPath string) (string, error) {
+	return output(repoPath, "git", "branch", "--show-current")
+}
+
+// LocalBranches returns all local branch names except the currently checked-out one.
+func LocalBranches(repoPath string) ([]string, error) {
+	current, err := CurrentBranch(repoPath)
+	if err != nil {
+		return nil, err
+	}
+	out, err := output(repoPath, "git", "branch")
+	if err != nil {
+		return nil, err
+	}
+	var branches []string
+	for _, line := range strings.Split(out, "\n") {
+		b := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "* "))
+		if b != "" && b != current {
+			branches = append(branches, b)
+		}
+	}
+	return branches, nil
+}
+
+// DeleteBranch force-deletes a local branch.
+func DeleteBranch(repoPath, branch string) error {
+	return run(repoPath, "git", "branch", "-D", branch)
+}
