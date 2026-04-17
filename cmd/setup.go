@@ -20,6 +20,10 @@ var setupCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		workspace, err := ui.AskString("VS Code workspace file path (leave blank to skip):", "")
+		if err != nil {
+			return err
+		}
 
 		all, err := git.ScanRepos(basePath)
 		if err != nil {
@@ -52,10 +56,6 @@ var setupCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			workspace, err := ui.AskString(fmt.Sprintf("[%s] VS Code workspace file path (leave blank to skip):", r), "")
-			if err != nil {
-				return err
-			}
 			raw, err := ui.AskString(fmt.Sprintf("[%s] Start commands (comma-separated, leave blank for none):", r), "")
 			if err != nil {
 				return err
@@ -67,7 +67,7 @@ var setupCmd = &cobra.Command{
 					starts = append(starts, s)
 				}
 			}
-			repoConfigs[r] = config.RepoConfig{Branch: branch, Workspace: workspace, Start: starts}
+			repoConfigs[r] = config.RepoConfig{Branch: branch, Start: starts}
 		}
 
 		selected, err := ui.MultiSelect("Which repos should be active (selected)?", toSetup, toSetup)
@@ -77,6 +77,7 @@ var setupCmd = &cobra.Command{
 
 		cfg := &config.Config{
 			BasePath:      basePath,
+			Workspace:     workspace,
 			SelectedRepos: selected,
 			RepoConfig:    repoConfigs,
 		}
