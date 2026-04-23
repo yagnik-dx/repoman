@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"repoman/internal/config"
@@ -68,6 +70,13 @@ var startCmd = &cobra.Command{
 	},
 }
 
+var nonAlphanumRe = regexp.MustCompile(`[^a-zA-Z0-9]`)
+
+func flagFile(repoName string, index int) string {
+	safe := nonAlphanumRe.ReplaceAllString(repoName, "_")
+	return filepath.Join(os.TempDir(), fmt.Sprintf("repoman_%s_%d.flag", safe, index))
+}
+
 func injectRepomanTasks(workspacePath, repoDir, repoName string, commands []string) error {
 	data, err := os.ReadFile(workspacePath)
 	if err != nil {
@@ -97,20 +106,41 @@ func injectRepomanTasks(workspacePath, repoDir, repoName string, commands []stri
 		}
 	}
 
-	// Embed cd into the command so the terminal lands in the right directory
-	// regardless of what cwd VS Code resolves to.
-	for _, command := range commands {
-		fullCmd := fmt.Sprintf(`cd /d "%s" && %s`, repoDir, command)
+	for i, command := range commands {
+		flag := flagFile(repoName, i)
+
+		// Create the trigger flag — task checks for this on every workspace open.
+		// If missing (normal VS Code open), the task exits immediately and the
+		// terminal closes. Only repoman start creates the flag.
+		if err := os.WriteFile(flag, []byte{}, 0644); err != nil {
+			return fmt.Errorf("could not create flag for %q: %w", command, err)
+		}
+
+		// cmd /K keeps the terminal open after the command exits so the user
+		// can see output. exit 0 still closes cmd, so the "no flag" path closes
+		// the terminal cleanly when combined with "close": true.
+		taskCmd := fmt.Sprintf(
+			`IF EXIST "%s" (del "%s" & cd /d "%s" & %s) ELSE (exit 0)`,
+			flag, flag, repoDir, command,
+		)
+
 		kept = append(kept, map[string]interface{}{
 			"label":   fmt.Sprintf("repoman: %s — %s", repoName, command),
 			"type":    "shell",
-			"command": fullCmd,
+			"command": taskCmd,
+			"options": map[string]interface{}{
+				"shell": map[string]interface{}{
+					"executable": "cmd.exe",
+					"args":       []string{"/D", "/K"},
+				},
+			},
 			"runOptions": map[string]interface{}{
 				"runOn": "folderOpen",
 			},
 			"presentation": map[string]interface{}{
 				"panel":            "new",
 				"focus":            false,
+				"close":            true,
 				"showReuseMessage": false,
 			},
 			"problemMatcher": []interface{}{},
