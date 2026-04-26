@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"repoman/internal/config"
 	"repoman/internal/ui"
@@ -56,29 +57,67 @@ var startCmd = &cobra.Command{
 			return nil
 		}
 
+		type entry struct {
+			label   string
+			batPath string
+			repoDir string
+		}
+		var entries []startEntry
+
 		for _, name := range chosen {
-			path := repoPath(cfg.BasePath, name)
-			repoCfg := cfg.RepoConfig[name]
-			fmt.Printf("[%s] preparing tasks...\n", name)
-			if err := injectRepomanTasks(cfg.Workspace, path, name, repoCfg.Start); err != nil {
-				fmt.Printf("[%s] warning: %v\n", name, err)
+			dir := repoPath(cfg.BasePath, name)
+			for i, command := range cfg.RepoConfig[name].Start {
+				batPath := batchFilePath(name, i)
+				bat := fmt.Sprintf("@echo off\r\ncd /d \"%s\"\r\n%s\r\n", dir, command)
+				if err := os.WriteFile(batPath, []byte(bat), 0644); err != nil {
+					fmt.Printf("[%s] warning: could not write batch file: %v\n", name, err)
+					continue
+				}
+				entries = append(entries, startEntry{
+					label:   fmt.Sprintf("repoman: %s — %s", name, command),
+					batPath: batPath,
+					repoDir: dir,
+				})
 			}
 		}
 
+		if len(entries) == 0 {
+			fmt.Println("Nothing to start.")
+			return nil
+		}
+
+		if err := injectTasks(cfg.Workspace, entries); err != nil {
+			return fmt.Errorf("could not update workspace: %w", err)
+		}
+
 		fmt.Println("Opening workspace...")
-		return exec.Command("code", cfg.Workspace).Start()
+		if err := exec.Command("code", cfg.Workspace).Start(); err != nil {
+			return fmt.Errorf("could not open VS Code: %w", err)
+		}
+
+		// Give VS Code a moment to load, then trigger the repoman build task.
+		fmt.Println("Waiting for VS Code to load...")
+		time.Sleep(5 * time.Second)
+		_ = exec.Command("code", "--command", "workbench.action.tasks.build").Start()
+
+		return nil
 	},
 }
 
 var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
-func taskFiles(repoName string, index int) (flagPath, batPath string) {
+func batchFilePath(repoName string, index int) string {
 	safe := safeNameRe.ReplaceAllString(repoName, "_")
-	base := filepath.Join(os.TempDir(), fmt.Sprintf("repoman_%s_%d", safe, index))
-	return base + ".flag", base + ".bat"
+	return filepath.Join(os.TempDir(), fmt.Sprintf("repoman_%s_%d.bat", safe, index))
 }
 
-func injectRepomanTasks(workspacePath, repoDir, repoName string, commands []string) error {
+type startEntry struct {
+	label   string
+	batPath string
+	repoDir string
+}
+
+func injectTasks(workspacePath string, entries []startEntry) error {
 	data, err := os.ReadFile(workspacePath)
 	if err != nil {
 		return err
@@ -94,12 +133,12 @@ func injectRepomanTasks(workspacePath, repoDir, repoName string, commands []stri
 		tasksSection = map[string]interface{}{"version": "2.0.0"}
 	}
 
-	labelPrefix := fmt.Sprintf("repoman: %s", repoName)
+	// Keep non-repoman tasks, drop old repoman tasks.
 	var kept []interface{}
 	if arr, ok := tasksSection["tasks"].([]interface{}); ok {
 		for _, t := range arr {
 			if tm, ok := t.(map[string]interface{}); ok {
-				if label, _ := tm["label"].(string); strings.HasPrefix(label, labelPrefix) {
+				if label, _ := tm["label"].(string); strings.HasPrefix(label, "repoman:") {
 					continue
 				}
 			}
@@ -107,47 +146,41 @@ func injectRepomanTasks(workspacePath, repoDir, repoName string, commands []stri
 		}
 	}
 
-	for i, command := range commands {
-		flagPath, batPath := taskFiles(repoName, i)
-
-		// Create the trigger flag. The batch script checks for this file:
-		// - flag present  → consume it, cd to repo, run command (terminal stays open)
-		// - flag absent   → exit immediately              (terminal closes)
-		// Only "repoman start" creates the flag, so natural VS Code opens do nothing.
-		if err := os.WriteFile(flagPath, []byte{}, 0644); err != nil {
-			return fmt.Errorf("could not create flag: %w", err)
-		}
-
-		bat := fmt.Sprintf(
-			"@echo off\r\nIF EXIST \"%s\" (del \"%s\" & cd /d \"%s\" & %s) ELSE (exit 0)\r\n",
-			flagPath, flagPath, repoDir, command,
-		)
-		if err := os.WriteFile(batPath, []byte(bat), 0644); err != nil {
-			return fmt.Errorf("could not write batch file: %w", err)
-		}
-
+	// Add one task per command (no runOn — never auto-starts).
+	var labels []string
+	for _, e := range entries {
+		labels = append(labels, e.label)
 		kept = append(kept, map[string]interface{}{
-			"label":   fmt.Sprintf("repoman: %s — %s", repoName, command),
+			"label":   e.label,
 			"type":    "shell",
-			"command": batPath,
+			"command": e.batPath,
 			"options": map[string]interface{}{
 				"shell": map[string]interface{}{
 					"executable": "cmd.exe",
 					"args":       []string{"/D", "/K"},
 				},
 			},
-			"runOptions": map[string]interface{}{
-				"runOn": "folderOpen",
-			},
 			"presentation": map[string]interface{}{
 				"panel":            "new",
 				"focus":            false,
-				"close":            true,
 				"showReuseMessage": false,
 			},
 			"problemMatcher": []interface{}{},
 		})
 	}
+
+	// Compound task that launches everything at once, set as the default
+	// build task so "code --command workbench.action.tasks.build" triggers it.
+	kept = append(kept, map[string]interface{}{
+		"label":        "repoman: start all",
+		"dependsOn":    labels,
+		"dependsOrder": "parallel",
+		"group": map[string]interface{}{
+			"kind":      "build",
+			"isDefault": true,
+		},
+		"problemMatcher": []interface{}{},
+	})
 
 	tasksSection["tasks"] = kept
 	ws["tasks"] = tasksSection
