@@ -59,7 +59,7 @@ var startCmd = &cobra.Command{
 		for _, name := range chosen {
 			path := repoPath(cfg.BasePath, name)
 			repoCfg := cfg.RepoConfig[name]
-			fmt.Printf("[%s] injecting tasks...\n", name)
+			fmt.Printf("[%s] preparing tasks...\n", name)
 			if err := injectRepomanTasks(cfg.Workspace, path, name, repoCfg.Start); err != nil {
 				fmt.Printf("[%s] warning: %v\n", name, err)
 			}
@@ -70,11 +70,12 @@ var startCmd = &cobra.Command{
 	},
 }
 
-var nonAlphanumRe = regexp.MustCompile(`[^a-zA-Z0-9]`)
+var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
-func flagFile(repoName string, index int) string {
-	safe := nonAlphanumRe.ReplaceAllString(repoName, "_")
-	return filepath.Join(os.TempDir(), fmt.Sprintf("repoman_%s_%d.flag", safe, index))
+func taskFiles(repoName string, index int) (flagPath, batPath string) {
+	safe := safeNameRe.ReplaceAllString(repoName, "_")
+	base := filepath.Join(os.TempDir(), fmt.Sprintf("repoman_%s_%d", safe, index))
+	return base + ".flag", base + ".bat"
 }
 
 func injectRepomanTasks(workspacePath, repoDir, repoName string, commands []string) error {
@@ -107,27 +108,28 @@ func injectRepomanTasks(workspacePath, repoDir, repoName string, commands []stri
 	}
 
 	for i, command := range commands {
-		flag := flagFile(repoName, i)
+		flagPath, batPath := taskFiles(repoName, i)
 
-		// Create the trigger flag — task checks for this on every workspace open.
-		// If missing (normal VS Code open), the task exits immediately and the
-		// terminal closes. Only repoman start creates the flag.
-		if err := os.WriteFile(flag, []byte{}, 0644); err != nil {
-			return fmt.Errorf("could not create flag for %q: %w", command, err)
+		// Create the trigger flag. The batch script checks for this file:
+		// - flag present  → consume it, cd to repo, run command (terminal stays open)
+		// - flag absent   → exit immediately              (terminal closes)
+		// Only "repoman start" creates the flag, so natural VS Code opens do nothing.
+		if err := os.WriteFile(flagPath, []byte{}, 0644); err != nil {
+			return fmt.Errorf("could not create flag: %w", err)
 		}
 
-		// cmd /K keeps the terminal open after the command exits so the user
-		// can see output. exit 0 still closes cmd, so the "no flag" path closes
-		// the terminal cleanly when combined with "close": true.
-		taskCmd := fmt.Sprintf(
-			`IF EXIST "%s" (del "%s" & cd /d "%s" & %s) ELSE (exit 0)`,
-			flag, flag, repoDir, command,
+		bat := fmt.Sprintf(
+			"@echo off\r\nIF EXIST \"%s\" (del \"%s\" & cd /d \"%s\" & %s) ELSE (exit 0)\r\n",
+			flagPath, flagPath, repoDir, command,
 		)
+		if err := os.WriteFile(batPath, []byte(bat), 0644); err != nil {
+			return fmt.Errorf("could not write batch file: %w", err)
+		}
 
 		kept = append(kept, map[string]interface{}{
 			"label":   fmt.Sprintf("repoman: %s — %s", repoName, command),
 			"type":    "shell",
-			"command": taskCmd,
+			"command": batPath,
 			"options": map[string]interface{}{
 				"shell": map[string]interface{}{
 					"executable": "cmd.exe",
