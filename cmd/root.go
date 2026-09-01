@@ -72,3 +72,13 @@ func resolveRepos(basePath string, selectedRepos []string) ([]string, error) {
 func repoPath(basePath, name string) string {
 	return filepath.Join(basePath, name)
 }
+
+// contains reports whether list holds name.
+func contains(list []string, name string) bool {
+	for _, r := range list {
+		if r == name {
+			return true
+		}
+	}
+	return false
+}

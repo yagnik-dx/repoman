@@ -37,10 +37,10 @@ cmd layer (parse flags) → load config → call internal/* → print [repo]-pre
 
 ### Internal packages
 
-- **`internal/config`** — loads/saves `~/.repoman/config.json` (JSON, marshaled with `encoding/json`). Only `setup` and `select` commands write config; all others are read-only.
+- **`internal/config`** — loads/saves `~/.repoman/config.json` (JSON, marshaled with `encoding/json`). Only `setup`, `add`, and `select` commands write config; all others are read-only.
 - **`internal/git`** — thin wrappers around `git` CLI: `ScanRepos` finds subdirs with a `.git` dir, `Fetch`/`Rebase`/`RebaseAbort`/`IsDirty`/`BranchExistsOnRemote`/`LocalBranches`/`DeleteBranch` cover all git operations needed.
 - **`internal/executor`** — `RunStreaming` runs a shell command string via `sh -c` (or `cmd /C` on Windows), prefixing every output line with `[repoName]`.
-- **`internal/ui`** — `survey`-based interactive prompts (multiselect, text input) used by `setup` and `select`.
+- **`internal/ui`** — `survey`-based interactive prompts (multiselect, text input) used by `setup`, `add`, and `select`.
 
 ### Config schema (`~/.repoman/config.json`)
 

@@ -33,6 +33,7 @@ Config is saved to `~/.repoman/config.json`.
 | Command | Description |
 |---|---|
 | `repoman setup` | Interactive wizard — configure repos, branches, and start commands |
+| `repoman add [repo...]` | Add new repos to an existing config (branch + start commands) without re-running setup |
 | `repoman select` | Change which repos are active |
 | `repoman list` | List all git repos found under `basePath` |
 | `repoman selected` | List currently active repos |
