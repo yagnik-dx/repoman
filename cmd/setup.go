@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	"repoman/internal/config"
 	"repoman/internal/git"
@@ -60,19 +59,21 @@ var setupCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			var starts []string
-			for _, s := range strings.Split(raw, ",") {
-				s = strings.TrimSpace(s)
-				if s != "" {
-					starts = append(starts, s)
-				}
-			}
-			repoConfigs[r] = config.RepoConfig{Branch: branch, Start: starts}
+			repoConfigs[r] = config.RepoConfig{Branch: branch, Start: parseStartCommands(raw)}
 		}
 
 		selected, err := ui.MultiSelect("Which repos should be active (selected)?", toSetup, toSetup)
 		if err != nil {
 			return err
+		}
+		// Repos configured in an earlier run and still known stay selected — a
+		// setup run that touches a subset must not deactivate the rest.
+		if existing != nil {
+			for _, r := range existing.SelectedRepos {
+				if _, stillConfigured := repoConfigs[r]; stillConfigured && !contains(toSetup, r) {
+					selected = appendUnique(selected, r)
+				}
+			}
 		}
 
 		cfg := &config.Config{
